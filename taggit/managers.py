@@ -132,10 +132,10 @@ class _TaggableManager(models.Manager):
         return self.through.lookup_kwargs(self.instance)
 
     @require_instance_manager
-    def add(self, *tags):
+    def add(self, *tags, **additional_data):
         db = router.db_for_write(self.through, instance=self.instance)
 
-        tag_objs = self._to_tag_model_instances(tags)
+        tag_objs = self._to_tag_model_instances(tags, **additional_data)
         new_ids = {t.pk for t in tag_objs}
 
         # NOTE: can we hardcode 'tag_id' here or should the column name be got
@@ -162,7 +162,7 @@ class _TaggableManager(models.Manager):
             model=self.through.tag_model(), pk_set=new_ids, using=db,
         )
 
-    def _to_tag_model_instances(self, tags):
+    def _to_tag_model_instances(self, tags, **additional_data):
         """
         Takes an iterable containing either strings, tag objects, or a mixture
         of both and returns set of tag objects.
@@ -205,14 +205,22 @@ class _TaggableManager(models.Manager):
 
         tag_objs.update(existing)
 
+        tag_fieldnames = [f.name for f in self.through.tag_model()._meta.fields]
+        tag_kwargs = {
+            k: v
+            for k, v in additional_data.items()
+            if k in tag_fieldnames
+            or (k.endswith('_id') and k[:-3] in tag_fieldnames)
+        }
+
         for new_tag in tags_to_create:
             if case_insensitive:
                 try:
-                    tag = manager.get(name__iexact=new_tag)
+                    tag = manager.get(name__iexact=new_tag, **tag_kwargs)
                 except self.through.tag_model().DoesNotExist:
-                    tag = manager.create(name=new_tag)
+                    tag = manager.create(name=new_tag, **tag_kwargs)
             else:
-                tag = manager.create(name=new_tag)
+                tag = manager.create(name=new_tag, **tag_kwargs)
 
             tag_objs.add(tag)
 
